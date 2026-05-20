@@ -78,6 +78,23 @@ def _task_to_dict(t: kb.Task) -> dict[str, Any]:
         "session_id": t.session_id,
         "workflow_template_id": t.workflow_template_id,
         "current_step_key": t.current_step_key,
+        "canonical_assignee": t.canonical_assignee,
+        "lane": t.lane,
+        "task_type": t.task_type,
+        "mode": t.mode,
+        "tags": list(t.tags) if t.tags else [],
+        "provider_hint": t.provider_hint,
+        "model_hint": t.model_hint,
+        "model_class": t.model_class,
+        "reasoning_effort": t.reasoning_effort,
+        "reasoning_effort_schema": t.reasoning_effort_schema,
+        "executor_hint": t.executor_hint,
+        "verification": t.verification,
+        "legacy_assignee": t.legacy_assignee,
+        "resolution_type": t.resolution_type,
+        "confidence": t.confidence,
+        "needs_review": t.needs_review,
+        "resolver_reason": t.resolver_reason,
     }
 
 
@@ -305,7 +322,15 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_create = sub.add_parser("create", help="Create a new task")
     p_create.add_argument("title", help="Task title")
     p_create.add_argument("--body", default=None, help="Optional opening post")
-    p_create.add_argument("--assignee", default=None, help="Profile name to assign")
+    p_create.add_argument(
+        "--assignee",
+        default=None,
+        help=(
+            "Canonical role to assign, or a legacy alias for compatibility. "
+            "Primary roles: orchestrator, researcher, analyst, brand-writer, "
+            "writer, doc-writer, designer, engineer, ops, verifier."
+        ),
+    )
     p_create.add_argument("--parent", action="append", default=[],
                           help="Parent task id (repeatable)")
     p_create.add_argument("--workspace", default="scratch",
@@ -332,6 +357,14 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                                "(repeatable). Appended to the built-in "
                                "kanban-worker skill. Example: "
                                "--skill translation --skill github-code-review")
+    p_create.add_argument("--task-type", default=None,
+                          help="Optional v2 metadata override for task_type")
+    p_create.add_argument("--lane", default=None,
+                          help="Optional v2 metadata override for lane")
+    p_create.add_argument("--mode", default=None,
+                          help="Optional v2 metadata override for mode")
+    p_create.add_argument("--tag", action="append", default=[], dest="tags",
+                          help="Optional v2 metadata tag override (repeatable)")
     p_create.add_argument("--max-retries", type=int, default=None,
                           metavar="N",
                           help="Per-task override for the consecutive-failure "
@@ -697,8 +730,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     # --- assignees ---
     p_asg = sub.add_parser(
         "assignees",
-        help="List known profiles + per-profile task counts "
-             "(union of ~/.hermes/profiles/ and current assignees on the board)",
+        help="List canonical public assignee roles + active non-canonical board assignees",
     )
     p_asg.add_argument("--json", action="store_true")
 
@@ -1305,6 +1337,10 @@ def _cmd_create(args: argparse.Namespace) -> int:
             skills=getattr(args, "skills", None) or None,
             max_retries=max_retries,
             initial_status=getattr(args, "initial_status", "running"),
+            task_type=getattr(args, "task_type", None),
+            lane=getattr(args, "lane", None),
+            tags=getattr(args, "tags", None) or None,
+            mode=getattr(args, "mode", None),
         )
         task = kb.get_task(conn, task_id)
     if getattr(args, "json", False):

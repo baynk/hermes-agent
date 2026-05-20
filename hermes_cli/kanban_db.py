@@ -98,6 +98,37 @@ VALID_STATUSES = {"triage", "todo", "scheduled", "ready", "running", "blocked", 
 VALID_INITIAL_STATUSES = {"running", "blocked"}
 VALID_WORKSPACE_KINDS = {"scratch", "worktree", "dir"}
 KNOWN_TOOLSET_NAMES = frozenset(name.casefold() for name in get_toolset_names())
+CANONICAL_PUBLIC_ASSIGNEES = (
+    "orchestrator",
+    "researcher",
+    "analyst",
+    "brand-writer",
+    "writer",
+    "doc-writer",
+    "designer",
+    "engineer",
+    "ops",
+    "verifier",
+)
+V2_METADATA_COLUMNS = (
+    "canonical_assignee",
+    "lane",
+    "task_type",
+    "mode",
+    "tags",
+    "provider_hint",
+    "model_hint",
+    "model_class",
+    "reasoning_effort",
+    "reasoning_effort_schema",
+    "executor_hint",
+    "verification",
+    "legacy_assignee",
+    "resolution_type",
+    "confidence",
+    "needs_review",
+    "resolver_reason",
+)
 _IS_WINDOWS = sys.platform == "win32"
 
 # A running task's claim is valid for 15 minutes by default; after that the
@@ -656,6 +687,25 @@ class Task:
     # set the env var. Lets clients render a per-session board without
     # relying on tenant + time-window heuristics.
     session_id: Optional[str] = None
+    # Phase 3 v2 metadata. Routing still uses assignee; these fields are
+    # informational until a later approved migration wires live dispatch.
+    canonical_assignee: Optional[str] = None
+    lane: Optional[str] = None
+    task_type: Optional[str] = None
+    mode: Optional[str] = None
+    tags: list[str] = field(default_factory=list)
+    provider_hint: Optional[str] = None
+    model_hint: Optional[str] = None
+    model_class: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    reasoning_effort_schema: Optional[str] = None
+    executor_hint: Optional[str] = None
+    verification: Optional[str] = None
+    legacy_assignee: Optional[str] = None
+    resolution_type: Optional[str] = None
+    confidence: Optional[float] = None
+    needs_review: Optional[bool] = None
+    resolver_reason: Optional[str] = None
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Task":
@@ -669,6 +719,14 @@ class Task:
                     skills_value = [str(s) for s in parsed if s]
             except Exception:
                 skills_value = None
+        tags_value: list[str] = []
+        if "tags" in keys and row["tags"]:
+            try:
+                parsed_tags = json.loads(row["tags"])
+                if isinstance(parsed_tags, list):
+                    tags_value = [str(tag) for tag in parsed_tags if tag]
+            except Exception:
+                tags_value = []
         return cls(
             id=row["id"],
             title=row["title"],
@@ -725,6 +783,33 @@ class Task:
             session_id=(
                 row["session_id"] if "session_id" in keys else None
             ),
+            canonical_assignee=row["canonical_assignee"] if "canonical_assignee" in keys else None,
+            lane=row["lane"] if "lane" in keys else None,
+            task_type=row["task_type"] if "task_type" in keys else None,
+            mode=row["mode"] if "mode" in keys else None,
+            tags=tags_value,
+            provider_hint=row["provider_hint"] if "provider_hint" in keys else None,
+            model_hint=row["model_hint"] if "model_hint" in keys else None,
+            model_class=row["model_class"] if "model_class" in keys else None,
+            reasoning_effort=row["reasoning_effort"] if "reasoning_effort" in keys else None,
+            reasoning_effort_schema=(
+                row["reasoning_effort_schema"] if "reasoning_effort_schema" in keys else None
+            ),
+            executor_hint=row["executor_hint"] if "executor_hint" in keys else None,
+            verification=row["verification"] if "verification" in keys else None,
+            legacy_assignee=row["legacy_assignee"] if "legacy_assignee" in keys else None,
+            resolution_type=row["resolution_type"] if "resolution_type" in keys else None,
+            confidence=(
+                float(row["confidence"])
+                if "confidence" in keys and row["confidence"] is not None
+                else None
+            ),
+            needs_review=(
+                bool(row["needs_review"])
+                if "needs_review" in keys and row["needs_review"] is not None
+                else None
+            ),
+            resolver_reason=row["resolver_reason"] if "resolver_reason" in keys else None,
         )
 
 
@@ -862,7 +947,27 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- for tasks created from the CLI, dashboard, or any path that doesn't
     -- set the env var. Indexed so per-session list queries stay cheap on
     -- larger boards.
-    session_id           TEXT
+    session_id           TEXT,
+    -- Phase 3 compatibility metadata. The dispatcher still routes via
+    -- assignee; these fields make new cards v2-readable without migrating
+    -- old cards or changing live dispatch behavior.
+    canonical_assignee   TEXT,
+    lane                 TEXT,
+    task_type            TEXT,
+    mode                 TEXT,
+    tags                 TEXT,
+    provider_hint        TEXT,
+    model_hint           TEXT,
+    model_class          TEXT,
+    reasoning_effort     TEXT,
+    reasoning_effort_schema TEXT,
+    executor_hint        TEXT,
+    verification         TEXT,
+    legacy_assignee      TEXT,
+    resolution_type      TEXT,
+    confidence           REAL,
+    needs_review         INTEGER,
+    resolver_reason      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS task_links (
@@ -1221,6 +1326,15 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             conn, "tasks", "session_id", "session_id TEXT"
         )
 
+    # Phase 3 v2 metadata columns are additive and nullable so opening old
+    # boards remains safe. They are populated only for newly-created cards;
+    # this migration does not backfill or rewrite existing card rows.
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
+    for column in V2_METADATA_COLUMNS:
+        if column not in cols:
+            ddl_type = "REAL" if column == "confidence" else "INTEGER" if column == "needs_review" else "TEXT"
+            _add_column_if_missing(conn, "tasks", column, f"{column} {ddl_type}")
+
     # Indexes over additive ``tasks`` columns must be created after the
     # columns exist. Keeping them in SCHEMA_SQL breaks legacy boards: SQLite
     # parses each statement in ``executescript`` against the live schema, so a
@@ -1411,6 +1525,10 @@ def create_task(
     max_retries: Optional[int] = None,
     initial_status: str = "running",
     session_id: Optional[str] = None,
+    task_type: Optional[str] = None,
+    lane: Optional[str] = None,
+    tags: Optional[Iterable[str]] = None,
+    mode: Optional[str] = None,
     board: Optional[str] = None,
 ) -> str:
     """Create a new task and optionally link it under parent tasks.
@@ -1516,6 +1634,36 @@ def create_task(
             return row["id"]
 
     now = int(time.time())
+    requested_assignee = assignee
+    try:
+        from hermes_cli.kanban_v2_metadata import enrich_card_metadata
+
+        v2_metadata = enrich_card_metadata(
+            assignee=requested_assignee,
+            title=title,
+            body=body,
+            task_type=task_type,
+            lane=lane,
+            tags=tags,
+            mode=mode,
+        )
+    except Exception as exc:
+        from hermes_cli.kanban_v2_metadata import empty_metadata
+
+        v2_metadata = empty_metadata(f"v2 metadata enrichment failed: {exc}")
+        if requested_assignee:
+            v2_metadata["legacy_assignee"] = requested_assignee
+
+    # New cards operate under the canonical role system: legacy/provider/
+    # executor-specific labels are accepted as aliases, but the stored
+    # dispatch assignee becomes the canonical role whenever the resolver is
+    # confident. Ambiguous/unmappable labels keep the requested assignee and
+    # are marked needs_review so Hermes does not fabricate routing.
+    resolved_assignee = v2_metadata.get("canonical_assignee")
+    if resolved_assignee and not bool(v2_metadata.get("needs_review")):
+        assignee = _canonical_assignee(str(resolved_assignee))
+    else:
+        assignee = requested_assignee
 
     # Resolve workspace_path from board-level default_workdir when the
     # caller did not specify one explicitly.
@@ -1569,8 +1717,13 @@ def create_task(
                         id, title, body, assignee, status, priority,
                         created_by, created_at, workspace_kind, workspace_path,
                         branch_name, tenant, idempotency_key, max_runtime_seconds,
-                        skills, max_retries, session_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skills, max_retries, session_id,
+                        canonical_assignee, lane, task_type, mode, tags,
+                        provider_hint, model_hint, model_class,
+                        reasoning_effort, reasoning_effort_schema,
+                        executor_hint, verification, legacy_assignee,
+                        resolution_type, confidence, needs_review, resolver_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task_id,
@@ -1590,6 +1743,23 @@ def create_task(
                         json.dumps(skills_list) if skills_list is not None else None,
                         int(max_retries) if max_retries is not None else None,
                         session_id,
+                        v2_metadata.get("canonical_assignee"),
+                        v2_metadata.get("lane"),
+                        v2_metadata.get("task_type"),
+                        v2_metadata.get("mode"),
+                        json.dumps(v2_metadata.get("tags") or []),
+                        v2_metadata.get("provider_hint"),
+                        v2_metadata.get("model_hint"),
+                        v2_metadata.get("model_class"),
+                        v2_metadata.get("reasoning_effort"),
+                        v2_metadata.get("reasoning_effort_schema"),
+                        v2_metadata.get("executor_hint"),
+                        v2_metadata.get("verification"),
+                        v2_metadata.get("legacy_assignee"),
+                        v2_metadata.get("resolution_type"),
+                        v2_metadata.get("confidence"),
+                        1 if v2_metadata.get("needs_review") else 0,
+                        v2_metadata.get("resolver_reason"),
                     ),
                 )
                 for pid in parents:
@@ -6151,11 +6321,22 @@ def known_assignees(conn: sqlite3.Connection) -> list[dict]:
     ):
         counts.setdefault(row["assignee"], {})[row["status"]] = int(row["n"])
 
-    names = sorted(on_disk | set(counts.keys()))
+    # Canonical public roles are the user-visible primary assignment surface.
+    # Include the full canonical set even when a role's backing profile is not
+    # currently present on disk; execution policy/resolver aliases decide how a
+    # concrete worker is selected. Active non-canonical assignees are appended
+    # only while live non-archived cards still reference them, preserving
+    # compatibility without promoting agent-name sprawl.
+    names: list[str] = list(CANONICAL_PUBLIC_ASSIGNEES)
+    for name in sorted(counts):
+        if name not in CANONICAL_PUBLIC_ASSIGNEES:
+            names.append(name)
+
     return [
         {
             "name": name,
             "on_disk": name in on_disk,
+            "canonical": name in CANONICAL_PUBLIC_ASSIGNEES,
             "counts": counts.get(name, {}),
         }
         for name in names

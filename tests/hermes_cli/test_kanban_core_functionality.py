@@ -1293,9 +1293,8 @@ def test_list_profiles_on_disk_custom_root(tmp_path, monkeypatch):
     assert names == ["default", "researcher", "writer"]
 
 
-def test_known_assignees_merges_disk_and_board(tmp_path, monkeypatch):
-    """known_assignees unions profiles on disk with currently-assigned
-    names, and reports per-status counts."""
+def test_known_assignees_returns_canonical_roles_and_active_legacy_board_names(tmp_path, monkeypatch):
+    """known_assignees exposes canonical roles first, plus active legacy names."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     profiles = tmp_path / ".hermes" / "profiles"
     profiles.mkdir(parents=True)
@@ -1317,12 +1316,16 @@ def test_known_assignees_merges_disk_and_board(tmp_path, monkeypatch):
         conn.close()
 
     by_name = {d["name"]: d for d in data}
-    assert by_name["default"]["on_disk"] is True
-    assert by_name["default"]["counts"] == {}
+    names = [d["name"] for d in data]
+    assert names[: len(kb.CANONICAL_PUBLIC_ASSIGNEES)] == list(kb.CANONICAL_PUBLIC_ASSIGNEES)
+    assert "default" not in by_name
+    assert by_name["researcher"]["canonical"] is True
     assert by_name["researcher"]["on_disk"] is True
     assert by_name["researcher"]["counts"] == {}
+    assert by_name["writer"]["canonical"] is True
     assert by_name["writer"]["on_disk"] is True
     assert by_name["writer"]["counts"] == {"ready": 1}
+    assert by_name["on_board_only"]["canonical"] is False
     assert by_name["on_board_only"]["on_disk"] is False
     assert by_name["on_board_only"]["counts"] == {"ready": 1}
 
@@ -2359,7 +2362,8 @@ def test_build_worker_context_includes_role_history(kanban_home):
     same assignee, giving cross-task continuity."""
     conn = kb.connect()
     try:
-        # Three completed tasks for 'reviewer'
+        # Three completed tasks for legacy 'reviewer' alias; new-card storage
+        # canonicalizes it to verifier while preserving legacy metadata.
         for i, (title, summary) in enumerate([
             ("Review security PR #1", "approved, focus on CSRF"),
             ("Review security PR #2", "requested changes: SQL injection vector"),
@@ -2375,7 +2379,7 @@ def test_build_worker_context_includes_role_history(kanban_home):
         )
         ctx = kb.build_worker_context(conn, new_tid)
 
-        assert "## Recent work by @reviewer" in ctx
+        assert "## Recent work by @verifier" in ctx
         assert "Review security PR #3" in ctx
         assert "approved, rate-limit added" in ctx
         # Current task should be excluded from its own recent work list.

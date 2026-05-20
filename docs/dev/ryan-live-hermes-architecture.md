@@ -1,6 +1,6 @@
 # Ryan live Hermes architecture snapshot
 
-Last verified: 2026-05-20T22:47:38Z on Ryan's live Ubuntu VPS.
+Last verified: 2026-05-20T23:12:11Z on Ryan's live Ubuntu VPS.
 
 This is a human map of the current Hermes/Ava setup. It is intentionally operational, not marketing copy. It answers: where the files live, what the brain is, which agents exist, which models they use, where voice is configured, and where to look when the system changes again.
 
@@ -86,23 +86,22 @@ Active configured profiles:
 - **planner** — `openai-codex / gpt-5.5`; tools include `web`, `file`, `todo`, `kanban`
 - **pm** — `openai-codex / gpt-5.5`; tools include `web`, `file`, `todo`, `kanban`
 - **researcher** — `openai-codex / gpt-5.5`; tools: `web`, `browser`, `file`, `skills`, `session_search`, `memory`, `clarify`, `kanban`
-- **researcher-opus** — `claude-code / claude`; tools: `web`, `browser`, `file`, `skills`, `session_search`, `memory`, `clarify`, `kanban`
+- **researcher-opus** — `openai-codex / gpt-5.5` controller; use as a research/analysis lane unless explicitly routed through Claude Code Opus
 - **reviewer** — `openai-codex / gpt-5.5`; tools include `web`, `browser`, `vision`, `terminal`, `file`, `code_execution`, `kanban`
 - **verifier** — `openai-codex / gpt-5.5`; tools include `web`, `browser`, `vision`, `terminal`, `file`, `code_execution`, `kanban`
 - **writer** — `openai-codex / gpt-5.5`; tools: `web`, `file`, `skills`, `session_search`, `memory`, `clarify`, `kanban`
 
-Profile directories that currently exist but showed no explicit model/provider in their `config.yaml` during this check:
+Additional specialist lanes now explicitly configured:
 
-- `copy-refiner-opus`
-- `default`
-- `designer`
-- `designer-opus`
-- `implementer-codex`
-- `researcher-gemini`
-- `researcher-grok`
-- `reviewer-verifier`
+- **designer** — `openai-codex / gpt-5.5` Hermes controller with profile SOUL.md instructing it to use `/home/ubuntu/bin/claude-ryan426 -p --model opus --effort max` for the core design/brainstorming pass. Verified by a live Hermes profile smoke test and a Claude Opus lane smoke test.
+- **designer-opus** — same Claude Code Opus design lane as `designer`; the `opus` alias is intentional so Claude Code tracks Anthropic's latest flagship Opus model instead of hard-pinning a dated model id.
+- **copy-refiner-opus** — `openai-codex / gpt-5.5` Hermes controller with profile SOUL.md instructing it to use Claude Code Opus for Ryan-voice copy/refinement.
+- **implementer-codex** — `openai-codex / gpt-5.5`; explicit Codex implementation lane.
+- **researcher-gemini** — `google-gemini / gemini-3.1-pro-preview`; verified with a live Hermes profile smoke test.
+- **researcher-grok** — `openai-codex / gpt-5.5` controller with `x_search`; direct xAI model inference is not enabled on this host because a valid XAI_API_KEY is not configured, but Grok/X search is available through the working `x_search` tool.
+- **reviewer-verifier** — `openai-codex / gpt-5.5`; explicit combined review/verification lane.
 
-That does not necessarily mean they are useless. It means the profile directory exists but the inspected config did not declare an explicit model/provider. Treat them as needing cleanup or verification before relying on them.
+Remaining cleanup note: `default` is still just the default profile directory, not a named specialist role.
 
 ## Kanban workers
 

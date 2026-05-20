@@ -75,6 +75,10 @@ _TELEGRAM_NOISY_STATUS_RE = re.compile(
     r"|no\s+auxiliary\s+llm\s+provider\s+configured"
     r"|auto-lowered\s+compression\s+threshold"
     r"|preflight\s+compression"
+    r"|compacting\s+context"
+    r"|context\s+too\s+large.+compressing"
+    r"|compressed\s+\d+\s+→\s+\d+\s+messages"
+    r"|context\s+reduced\s+to\s+[\d,]+\s+tokens"
     r"|rate\s+limited\.\s+waiting\s+\d"
     r"|retrying\s+in\s+\d"
     r"|max\s+retries\s+\(\d+\).*(?:trying\s+fallback|exhausted|invalid\s+responses)"
@@ -16049,6 +16053,26 @@ class GatewayRunner:
         def _status_callback_sync(event_type: str, message: str) -> None:
             if not _status_adapter or not _run_still_current():
                 return
+            # If the user has globally disabled tool-progress command chatter,
+            # also suppress transient context/retry status bubbles at the
+            # gateway layer. These are useful logs, but in chat they read like
+            # constant internal tool noise — especially during compression.
+            try:
+                _tool_progress_command = display_config.get("tool_progress_command")
+                _progress_command_disabled = _tool_progress_command is False or (
+                    isinstance(_tool_progress_command, str)
+                    and _tool_progress_command.strip().lower() in {"false", "0", "no", "off"}
+                )
+                if _progress_command_disabled and _TELEGRAM_NOISY_STATUS_RE.search(str(message or "")):
+                    logger.debug(
+                        "status_callback suppressed by display.tool_progress_command=false for %s/%s: %s",
+                        source.platform.value if source.platform else "unknown",
+                        event_type,
+                        _redact_gateway_user_facing_secrets(str(message or ""))[:160],
+                    )
+                    return
+            except Exception:
+                pass
             prepared_message = _prepare_gateway_status_message(
                 source.platform,
                 event_type,

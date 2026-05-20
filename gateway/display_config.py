@@ -139,6 +139,22 @@ def resolve_display_setting(
     """
     display_cfg = user_config.get("display") or {}
 
+    # Global hard kill-switch for gateway tool-progress bubbles. Historically
+    # display.tool_progress_command only gated the /verbose command, while
+    # display.tool_progress / display.platforms.*.tool_progress controlled the
+    # actual progress messages. In chat platforms that distinction is confusing:
+    # users set `display.tool_progress_command: false` because they do not want
+    # to see tool-call chatter. Honor that expectation by making the command
+    # gate suppress tool progress too when explicitly false. Empty/minimal test
+    # configs that omit the key still exercise built-in defaults below.
+    if setting == "tool_progress" and isinstance(display_cfg, dict):
+        command_gate = display_cfg.get("tool_progress_command")
+        if command_gate is False or (
+            isinstance(command_gate, str)
+            and command_gate.strip().lower() in {"false", "0", "no", "off"}
+        ):
+            return "off"
+
     # 1. Explicit per-platform override (display.platforms.<platform>.<key>)
     platforms = display_cfg.get("platforms") or {}
     plat_overrides = platforms.get(platform_key)

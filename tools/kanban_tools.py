@@ -668,6 +668,16 @@ def _handle_create(args: dict, **kw) -> str:
     max_runtime_seconds = args.get("max_runtime_seconds")
     initial_status = args.get("initial_status") or "running"
     skills = args.get("skills")
+    task_type = args.get("task_type")
+    lane = args.get("lane")
+    mode = args.get("mode")
+    tags = args.get("tags")
+    if isinstance(tags, str):
+        tags = [tags]
+    if tags is not None and not isinstance(tags, (list, tuple)):
+        return tool_error(
+            f"tags must be a list of strings, got {type(tags).__name__}"
+        )
     if isinstance(skills, str):
         # Accept a single skill name as a string for convenience.
         skills = [skills]
@@ -703,6 +713,10 @@ def _handle_create(args: dict, **kw) -> str:
                 ),
                 skills=skills,
                 initial_status=str(initial_status),
+                task_type=str(task_type) if task_type is not None else None,
+                lane=str(lane) if lane is not None else None,
+                tags=[str(tag) for tag in tags] if tags is not None else None,
+                mode=str(mode) if mode is not None else None,
                 created_by=os.environ.get("HERMES_PROFILE") or "worker",
                 session_id=session_id,
             )
@@ -1049,10 +1063,11 @@ KANBAN_CREATE_SCHEMA = {
     "description": (
         "Create a new kanban task, optionally as a child of the current "
         "one (pass the current task id in ``parents``). Used by "
-        "orchestrator workers to fan out — decompose work into child "
-        "tasks with specific assignees, link them into a pipeline, "
-        "then complete your own task. The dispatcher picks up the new "
-        "tasks on its next tick and spawns the assigned profiles."
+        "orchestrator workers to fan out. Assign to canonical roles "
+        "(orchestrator, researcher, analyst, brand-writer, writer, "
+        "doc-writer, designer, engineer, ops, verifier); legacy/provider/"
+        "executor-specific names are accepted only as aliases and stored "
+        "as v2 metadata, not promoted as primary identities."
     ),
     "parameters": {
         "type": "object",
@@ -1064,10 +1079,11 @@ KANBAN_CREATE_SCHEMA = {
             "assignee": {
                 "type": "string",
                 "description": (
-                    "Profile name that should execute this task "
-                    "(e.g. 'researcher-a', 'reviewer', 'writer'). "
-                    "Required — tasks without an assignee are never "
-                    "dispatched."
+                    "Canonical role that should execute this task "
+                    "(or a legacy alias accepted for compatibility). "
+                    "Use canonical roles as primary choices: orchestrator, "
+                    "researcher, analyst, brand-writer, writer, doc-writer, "
+                    "designer, engineer, ops, verifier."
                 ),
             },
             "body": {
@@ -1165,6 +1181,23 @@ KANBAN_CREATE_SCHEMA = {
                     "The names must match skills installed on the "
                     "assignee's profile."
                 ),
+            },
+            "task_type": {
+                "type": "string",
+                "description": "Optional v2 metadata override for task_type.",
+            },
+            "lane": {
+                "type": "string",
+                "description": "Optional v2 metadata override for lane.",
+            },
+            "mode": {
+                "type": "string",
+                "description": "Optional v2 metadata override for mode.",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional v2 metadata tag overrides.",
             },
             "board": _board_schema_prop(),
         },

@@ -12,9 +12,8 @@ type ExecFileOptions = {
    *
    *  When true, stdout and stderr are set to 'ignore' to prevent the
    *  daemon from inheriting those pipe FDs — the caller must not
-   *  depend on collecting stdout/stderr content. Only what arrived
-   *  before exit is included in the resolved value (typically empty
-   *  since the child exits immediately). */
+   *  depend on collecting stdout/stderr content. Both will always be
+   *  empty strings in this mode. */
   resolveOnExit?: boolean
 }
 
@@ -31,9 +30,8 @@ export function execFileNoThrow(
   return new Promise(resolve => {
     // When resolveOnExit is true, ignore stdout/stderr so the daemon
     // doesn't inherit those pipe FDs — prevents handle leaks that can
-    // keep the parent process alive. We still collect any data that
-    // arrives before exit, but typically there's none (the whole point
-    // is the child exits immediately while a daemon holds the selection).
+    // keep the parent process alive. No output data is collected in
+    // this mode; both stdout and stderr will be empty strings.
     const stdioConfig = options.resolveOnExit
       ? ['pipe', 'ignore', 'ignore'] as const
       : 'pipe' as const
@@ -95,12 +93,16 @@ export function execFileNoThrow(
     if (options.resolveOnExit) {
       // 'exit' fires when the child process itself exits — even if the
       // daemon it forked still holds the inherited stdio pipes open.
-      child.on('exit', code => {
-        settle(timedOut ? 124 : (code ?? 0))
+      // When a signal kills the child, code is null — map that to 1
+      // so callers don't mistake a signal-terminated run for success.
+      child.on('exit', (code, signal) => {
+        const exitCode = timedOut ? 124 : (code ?? (signal ? 1 : 0))
+        settle(exitCode)
       })
     } else {
-      child.on('close', code => {
-        settle(timedOut ? 124 : (code ?? 0))
+      child.on('close', (code, signal) => {
+        const exitCode = timedOut ? 124 : (code ?? (signal ? 1 : 0))
+        settle(exitCode)
       })
     }
 

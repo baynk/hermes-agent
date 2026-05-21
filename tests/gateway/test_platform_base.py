@@ -329,6 +329,16 @@ class TestExtractMedia:
         assert media == [("/tmp/Jane Doe/speech.flac", False)]
         assert cleaned == ""
 
+    def test_media_tag_supports_tar_gz_archives(self):
+        content = "Files:\nMEDIA:/tmp/ryan-reasoning-in-motion-voice.tar.gz\nMEDIA:/tmp/ai-tell-lint.tgz"
+        media, cleaned = BasePlatformAdapter.extract_media(content)
+        assert media == [
+            ("/tmp/ryan-reasoning-in-motion-voice.tar.gz", False),
+            ("/tmp/ai-tell-lint.tgz", False),
+        ]
+        assert "MEDIA:" not in cleaned
+        assert "Files:" in cleaned
+
     def test_as_document_directive_stripped_from_cleaned_text(self):
         """[[as_document]] is a routing directive — strip it from
         user-visible text just like [[audio_as_voice]]. Callers detect the

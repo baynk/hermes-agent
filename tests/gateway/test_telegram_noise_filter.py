@@ -15,6 +15,10 @@ def test_telegram_status_suppresses_auxiliary_and_retry_noise():
         "ℹ Configured compression model 'small-model' failed (timeout). Recovered using main model — check auxiliary.compression.model in config.yaml.",
         "⏳ Retrying in 4.2s (attempt 1/3)...",
         "⏱️ Rate limited. Waiting 30.0s (attempt 2/3)...",
+        "🗜️ Compacting context — summarizing earlier conversation so I can continue...",
+        "🗜️ Context too large (~231,000 tokens) — compressing (1/3)...",
+        "🗜️ Compressed 144 → 31 messages, retrying...",
+        "🗜️ Context reduced to 91,204 tokens (was 231,112), retrying...",
         "⚠️ Max retries (3) exhausted — trying fallback...",
     ]
 

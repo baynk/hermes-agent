@@ -35,6 +35,27 @@ class TestResolveDisplaySetting:
         }
         assert resolve_display_setting(config, "telegram", "tool_progress") == "new"
 
+    def test_tool_progress_command_false_is_global_quiet_switch(self):
+        """Ryan-facing gateway config: command=false also suppresses progress bubbles."""
+        from gateway.display_config import resolve_display_setting
+
+        config = {
+            "display": {
+                "tool_progress_command": False,
+                "tool_progress": "all",
+                "platforms": {"telegram": {"tool_progress": "verbose"}},
+            }
+        }
+        assert resolve_display_setting(config, "telegram", "tool_progress") == "off"
+        assert resolve_display_setting(config, "discord", "tool_progress") == "off"
+
+    def test_tool_progress_command_string_false_is_global_quiet_switch(self):
+        """String false/off values from hand-edited YAML also suppress progress."""
+        from gateway.display_config import resolve_display_setting
+
+        config = {"display": {"tool_progress_command": "off", "tool_progress": "all"}}
+        assert resolve_display_setting(config, "telegram", "tool_progress") == "off"
+
     def test_platform_default_when_no_user_config(self):
         """Falls back to built-in platform default."""
         from gateway.display_config import resolve_display_setting
@@ -170,6 +191,27 @@ class TestYAMLNormalisation:
 
         config = {"display": {"platforms": {"slack": {"tool_progress": False}}}}
         assert resolve_display_setting(config, "slack", "tool_progress") == "off"
+
+    def test_tool_progress_command_false_hard_disables_progress(self):
+        """display.tool_progress_command: false suppresses gateway tool progress."""
+        from gateway.display_config import resolve_display_setting
+
+        config = {
+            "display": {
+                "tool_progress_command": False,
+                "tool_progress": "all",
+                "platforms": {"telegram": {"tool_progress": "verbose"}},
+            }
+        }
+        assert resolve_display_setting(config, "telegram", "tool_progress") == "off"
+
+    def test_tool_progress_command_string_false_hard_disables_progress(self):
+        """String false/off values also suppress gateway tool progress."""
+        from gateway.display_config import resolve_display_setting
+
+        for raw in ("false", "off", "0", "no"):
+            config = {"display": {"tool_progress_command": raw, "tool_progress": "all"}}
+            assert resolve_display_setting(config, "telegram", "tool_progress") == "off"
 
 
 # ---------------------------------------------------------------------------

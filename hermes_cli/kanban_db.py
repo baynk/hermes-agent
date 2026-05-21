@@ -99,12 +99,8 @@ VALID_INITIAL_STATUSES = {"running", "blocked"}
 VALID_WORKSPACE_KINDS = {"scratch", "worktree", "dir"}
 KNOWN_TOOLSET_NAMES = frozenset(name.casefold() for name in get_toolset_names())
 CANONICAL_PUBLIC_ASSIGNEES = (
-    "orchestrator",
     "researcher",
-    "analyst",
     "brand-writer",
-    "writer",
-    "doc-writer",
     "designer",
     "engineer",
     "ops",

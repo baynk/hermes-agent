@@ -1300,7 +1300,7 @@ def test_known_assignees_returns_canonical_roles_and_active_legacy_board_names(t
     profiles.mkdir(parents=True)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
 
-    for name in ("researcher", "writer"):
+    for name in ("researcher", "brand-writer", "writer"):
         d = profiles / name
         d.mkdir()
         (d / "config.yaml").write_text("model: {}\n")
@@ -1308,8 +1308,9 @@ def test_known_assignees_returns_canonical_roles_and_active_legacy_board_names(t
     kb.init_db()
     conn = kb.connect()
     try:
-        # writer has a ready task; on_board_only has a task but no profile dir.
-        kb.create_task(conn, title="a", assignee="writer")
+        # brand-writer is canonical; writer is an active legacy board name.
+        kb.create_task(conn, title="a", assignee="brand-writer")
+        kb.create_task(conn, title="legacy", assignee="writer")
         kb.create_task(conn, title="b", assignee="on_board_only")
         data = kb.known_assignees(conn)
     finally:
@@ -1322,7 +1323,10 @@ def test_known_assignees_returns_canonical_roles_and_active_legacy_board_names(t
     assert by_name["researcher"]["canonical"] is True
     assert by_name["researcher"]["on_disk"] is True
     assert by_name["researcher"]["counts"] == {}
-    assert by_name["writer"]["canonical"] is True
+    assert by_name["brand-writer"]["canonical"] is True
+    assert by_name["brand-writer"]["on_disk"] is True
+    assert by_name["brand-writer"]["counts"] == {"ready": 1}
+    assert by_name["writer"]["canonical"] is False
     assert by_name["writer"]["on_disk"] is True
     assert by_name["writer"]["counts"] == {"ready": 1}
     assert by_name["on_board_only"]["canonical"] is False
